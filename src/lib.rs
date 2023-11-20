@@ -271,6 +271,8 @@ mod tests;
 // mod transducer;
 pub(crate) mod util;
 
+pub(crate) mod replacer;
+
 #[cfg(all(feature = "async", feature = "std"))]
 pub(crate) mod r#async;
 

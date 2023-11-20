@@ -22,6 +22,8 @@ use crate::r#async::{
     reader::AhoCorasickAsyncReader, writer::AhoCorasickAsyncWriter,
 };
 
+pub(crate) use crate::replacer::AhoCorasickReplacer;
+
 /// An automaton for searching multiple strings in linear time.
 ///
 /// The `AhoCorasick` type supports a few basic ways of constructing an
@@ -1845,6 +1847,24 @@ impl AhoCorasick {
         enforce_anchored_consistency(self.start_kind, Anchored::No)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         self.aut.try_stream_replace_all_with(rdr, wtr, replace_with)
+    }
+
+    /// Instantiate an AhoCorasickReplacer
+    /// After the creation, the Replacer can be fed chunks by calling "replace" method,
+    /// which yields a &[u8] pointing to a u8 slice containing the chunk bytes with the replacement done
+    /// Pending match is memorised, and replacement will occur on the next call
+    /// 
+    /// finish() must be called after chunks are processed, as it might return remaining pending bytes,
+    /// in case the last part of the last chunk is a matching suffix
+    #[cfg(all(feature = "std"))]
+    pub fn replacer<'a, R, B>(
+        &self,
+        replace_with: &'a [B],
+    ) -> Result<AhoCorasickReplacer<'a, B>, MatchError>
+    where
+        B: AsRef<[u8]> + 'a,
+    {
+        AhoCorasickReplacer::new(Arc::clone(&self.aut), replace_with)
     }
 
     /// Obtain AhoCorasickAsyncReader wrapping an original AsyncRead source
