@@ -22,7 +22,7 @@ use crate::r#async::{
     reader::AhoCorasickAsyncReader, writer::AhoCorasickAsyncWriter,
 };
 
-pub(crate) use crate::replacer::AhoCorasickReplacer;
+pub use crate::replacer::AhoCorasickReplacer;
 
 /// An automaton for searching multiple strings in linear time.
 ///

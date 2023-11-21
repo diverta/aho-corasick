@@ -242,6 +242,7 @@ pub use crate::{
     ahocorasick::{
         AhoCorasick, AhoCorasickBuilder, AhoCorasickKind, FindIter,
         FindOverlappingIter,
+        AhoCorasickReplacer
     },
     util::{
         error::{BuildError, MatchError, MatchErrorKind},
@@ -258,6 +259,7 @@ pub mod automaton;
 pub mod dfa;
 pub mod nfa;
 pub mod packed;
+pub mod replacer;
 #[cfg(test)]
 mod tests;
 // I wrote out the module for implementing fst::Automaton only to later realize
@@ -270,8 +272,6 @@ mod tests;
 // #[allow(dead_code)]
 // mod transducer;
 pub(crate) mod util;
-
-pub(crate) mod replacer;
 
 #[cfg(all(feature = "async", feature = "std"))]
 pub(crate) mod r#async;

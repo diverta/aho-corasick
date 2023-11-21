@@ -1,8 +1,11 @@
+/*!
+ * This module enables AhoCorasickReplacer, which is used to manually work with chunks of data
+*/
 use alloc::{sync::Arc, vec::Vec, collections::VecDeque};
 
 use crate::{ahocorasick::AcAutomaton, automaton::StateID, MatchError, Anchored};
 
-//
+/// The replacer iself
 pub struct AhoCorasickReplacer<'a, B> {
     aut: Arc<dyn AcAutomaton>,
     sid: StateID,
