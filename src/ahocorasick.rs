@@ -1857,12 +1857,10 @@ impl AhoCorasick {
     /// finish() must be called after chunks are processed, as it might return remaining pending bytes,
     /// in case the last part of the last chunk is a matching suffix
     #[cfg(all(feature = "std"))]
-    pub fn replacer<'a, R, B>(
+    pub fn replacer<'a>(
         &self,
-        replace_with: &'a [B],
-    ) -> Result<AhoCorasickReplacer<'a, B>, MatchError>
-    where
-        B: AsRef<[u8]> + 'a,
+        replace_with: Vec<Vec<u8>>,
+    ) -> Result<AhoCorasickReplacer, MatchError>
     {
         AhoCorasickReplacer::new(Arc::clone(&self.aut), replace_with)
     }

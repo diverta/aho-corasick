@@ -6,22 +6,20 @@ use alloc::{sync::Arc, vec::Vec, collections::VecDeque};
 use crate::{ahocorasick::AcAutomaton, automaton::StateID, MatchError, Anchored};
 
 /// The replacer iself
-pub struct AhoCorasickReplacer<'a, B> {
+pub struct AhoCorasickReplacer {
     aut: Arc<dyn AcAutomaton>,
     sid: StateID,
-    replace_with: &'a [B],
+    replace_with: Vec<Vec<u8>>,
     buffer: Vec<u8>, // Buffer holding the replaced data
     potential_buffer: VecDeque<u8>, // Buffer holding the start of a potential match
 }
 
-impl<'a, B> AhoCorasickReplacer<'a, B>
-where
-    B: AsRef<[u8]> + 'a
+impl AhoCorasickReplacer
 {
     /// Instantiate a new Replacer
     pub(crate) fn new(
         aut: Arc<dyn AcAutomaton>,
-        replace_with: &'a [B],
+        replace_with: Vec<Vec<u8>>,
     ) -> Result<Self, MatchError> {
         let sid = aut.start_state(Anchored::No)?;
         Ok(Self {
@@ -47,7 +45,7 @@ where
     /// Perform potential replacements in the chunk, reading the reference to the internal buffer containing the chunk data with eventually replaced bytes.
     /// self reference might be of 0 length even if the input was non-zero,
     /// because it might be holding onto a potential match without being able to decide whether replace or discard it yet
-    pub fn replace(&'a mut self, chunk: &[u8]) -> Result<&'a [u8], MatchError> {
+    pub fn replace(&mut self, chunk: &[u8]) -> Result<&[u8], MatchError> {
         if self.buffer.len() < chunk.len() + self.potential_buffer.len() {
             // Default buffer length to chunk once to avoid incremental size increases & capacity reallocations during the buffer writing process
             self.buffer.resize(chunk.len() + self.potential_buffer.len(), b'\0');
@@ -82,7 +80,7 @@ where
                         );
                     }
 
-                    let replacement = self.replace_with[pattern_id].as_ref();
+                    let replacement: &Vec<u8> = self.replace_with[pattern_id].as_ref();
                     // Replacement is given by the automaton node, so we only need to clear the potential buffer
                     self.potential_buffer.clear();
                     for replaced_byte in replacement.iter() {
@@ -117,7 +115,7 @@ where
     }
 
     /// Returns the potentially buffered bytes of the last chunk
-    pub fn finish(&'a mut self) -> Result<&'a [u8], MatchError> {
+    pub fn finish(&mut self) -> Result<&[u8], MatchError> {
         if self.potential_buffer.len() > 0 {
             self.potential_buffer.make_contiguous();
             Ok(self.potential_buffer.as_slices().0)
