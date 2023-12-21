@@ -1,5 +1,5 @@
 use crate::{
-    ahocorasick::AcAutomaton, automaton::StateID, Anchored, MatchError,
+    ahocorasick::AcAutomaton, automaton::{StateID, Automaton}, Anchored, MatchError, AhoCorasickKind,
 };
 use alloc::{collections::VecDeque, sync::Arc, vec::Vec};
 use core::task::Poll;
@@ -12,6 +12,7 @@ pin_project! {
         #[pin]
         sink: W,
         aut: Arc<dyn AcAutomaton>,
+        kind: AhoCorasickKind,
         sid: StateID,
         replace_with: &'a [B],
         buffer: Vec<u8>, // Buffer holding the data that will be sent to the sink
@@ -32,6 +33,7 @@ where
 {
     pub(crate) fn new(
         aut: Arc<dyn AcAutomaton>,
+        kind: AhoCorasickKind,
         sink: W,
         replace_with: &'a [B],
     ) -> Result<Self, MatchError>
@@ -43,6 +45,7 @@ where
         Ok(AhoCorasickAsyncWriter {
             sink,
             aut,
+            kind,
             sid,
             replace_with,
             buffer: Vec::new(),
@@ -74,6 +77,7 @@ where
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
         let this = self.project();
+        let aut = this.aut.as_ref().coerce_concrete(*this.kind);
         if let Some(pending_state) = this.pending_state.take() {
             return match this
                 .sink
@@ -93,8 +97,8 @@ where
         }
         let mut write_idx = 0usize;
         for byte in buf {
-            *this.sid = this.aut.next_state(Anchored::No, *this.sid, *byte);
-            if this.aut.is_start(*this.sid) {
+            *this.sid = aut.next_state(Anchored::No, *this.sid, *byte);
+            if aut.is_start(*this.sid) {
                 // No potential replacements
                 while this.potential_buffer.len() > 0 {
                     // At this point potential buffer is discareded (written)
@@ -107,9 +111,9 @@ where
                 Self::write_to_buffer(this.buffer, &mut write_idx, *byte);
             } else {
                 this.potential_buffer.push_back(*byte);
-                if this.aut.is_match(*this.sid) {
-                    let pattern_id = this.aut.match_pattern(*this.sid, 0);
-                    let pattern_len = this.aut.pattern_len(pattern_id);
+                if aut.is_match(*this.sid) {
+                    let pattern_id = aut.match_pattern(*this.sid, 0);
+                    let pattern_len = aut.pattern_len(pattern_id);
                     // Either we followed a potential word all the way down, or we jumped to a different branch following the suffix link
                     // In the second case, we need to discard (write away) first part of the potential buffer, as it will be bigger than the max match,
                     // keeping as new potential the last part containing the amount of bytes equal to the new state node depth (equal to the pattern_len)
@@ -133,7 +137,7 @@ where
                     }
                     // Reset the state after a replacement
                     *this.sid =
-                        this.aut.start_state(Anchored::No).map_err(|e| {
+                        aut.start_state(Anchored::No).map_err(|e| {
                             std::io::Error::new(std::io::ErrorKind::Other, e)
                         })?;
                 }

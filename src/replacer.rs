@@ -3,11 +3,12 @@
 */
 use alloc::{sync::Arc, vec::Vec, collections::VecDeque};
 
-use crate::{ahocorasick::AcAutomaton, automaton::StateID, MatchError, Anchored};
+use crate::{automaton::{StateID, Automaton}, MatchError, Anchored, ahocorasick::AcAutomaton, AhoCorasickKind};
 
 /// The replacer iself
 pub struct AhoCorasickReplacer {
     aut: Arc<dyn AcAutomaton>,
+    kind: AhoCorasickKind,
     sid: StateID,
     replace_with: Vec<Vec<u8>>,
     buffer: Vec<u8>, // Buffer holding the replaced data
@@ -19,11 +20,13 @@ impl AhoCorasickReplacer
     /// Instantiate a new Replacer
     pub(crate) fn new(
         aut: Arc<dyn AcAutomaton>,
+        kind: AhoCorasickKind,
         replace_with: Vec<Vec<u8>>,
     ) -> Result<Self, MatchError> {
         let sid = aut.start_state(Anchored::No)?;
         Ok(Self {
             aut,
+            kind,
             sid,
             replace_with,
             buffer: Vec::new(),
@@ -46,14 +49,15 @@ impl AhoCorasickReplacer
     /// self reference might be of 0 length even if the input was non-zero,
     /// because it might be holding onto a potential match without being able to decide whether replace or discard it yet
     pub fn replace(&mut self, chunk: &[u8]) -> Result<&[u8], MatchError> {
+        let aut = self.aut.as_ref().coerce_concrete(self.kind);
         if self.buffer.len() < chunk.len() + self.potential_buffer.len() {
             // Default buffer length to chunk once to avoid incremental size increases & capacity reallocations during the buffer writing process
             self.buffer.resize(chunk.len() + self.potential_buffer.len(), b'\0');
         }
         let mut write_idx = 0usize;
         for byte in chunk {
-            self.sid = self.aut.next_state(Anchored::No, self.sid, *byte);
-            if self.aut.is_start(self.sid) {
+            self.sid = aut.next_state(Anchored::No, self.sid, *byte);
+            if aut.is_start(self.sid) {
                 // No potential replacements
                 while self.potential_buffer.len() > 0 {
                     // At self point potential buffer is discareded (written)
@@ -66,9 +70,9 @@ impl AhoCorasickReplacer
                 Self::write_to_buffer(&mut self.buffer, &mut write_idx, *byte);
             } else {
                 self.potential_buffer.push_back(*byte);
-                if self.aut.is_match(self.sid) {
-                    let pattern_id = self.aut.match_pattern(self.sid, 0);
-                    let pattern_len = self.aut.pattern_len(pattern_id);
+                if aut.is_match(self.sid) {
+                    let pattern_id = aut.match_pattern(self.sid, 0);
+                    let pattern_len = aut.pattern_len(pattern_id);
                     // Either we followed a potential word all the way down, or we jumped to a different branch following the suffix link
                     // In the second case, we need to discard (write away) first part of the potential buffer, as it will be bigger than the max match,
                     // keeping as new potential the last part containing the amount of bytes equal to the new state node depth (equal to the pattern_len)
@@ -92,7 +96,7 @@ impl AhoCorasickReplacer
                     }
                     // Reset the state after a replacement
                     self.sid =
-                        self.aut.start_state(Anchored::No)?;
+                        aut.start_state(Anchored::No)?;
                 }
             }
         }

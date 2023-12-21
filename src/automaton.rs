@@ -8,11 +8,11 @@ permit walking the state transitions of an Aho-Corasick automaton manually.
 
 use alloc::{string::String, vec::Vec};
 
-use crate::util::{
+use crate::{util::{
     error::MatchError,
     primitives::PatternID,
     search::{Anchored, Input, Match, MatchKind, Span},
-};
+}, nfa::{noncontiguous, contiguous}, dfa::DFA};
 
 pub use crate::util::{
     prefilter::{Candidate, Prefilter},
@@ -500,7 +500,7 @@ pub unsafe trait Automaton: private::Sealed {
         Self: Sized,
         F: FnMut(&Match, &str, &mut String) -> bool,
     {
-        let mut last_match = 0;
+        let mut last_match: usize = 0;
         for m in self.try_find_iter(Input::new(haystack))? {
             // Since there are no restrictions on what kinds of patterns are
             // in an Aho-Corasick automaton, we might get matches that split
@@ -1605,4 +1605,157 @@ pub(crate) fn sparse_transitions<'a>(
         }
         None
     })
+}
+
+/// Holds a variant of an implemented automaton, as a concrete type rather than trait object
+/// This is useful for coercion of dynamic trait objects, for devirtualized calls
+pub(crate) enum AutomatonImpl<'a> {
+    NoncontiguousNFA(&'a noncontiguous::NFA),
+    ContiguousNFA(&'a contiguous::NFA),
+    DFA(&'a DFA),
+}
+
+impl<'a> private::Sealed for AutomatonImpl<'a> {}
+
+impl<'a> From<&'a noncontiguous::NFA> for AutomatonImpl<'a>  {
+    fn from(value: &'a noncontiguous::NFA) -> Self {
+        AutomatonImpl::NoncontiguousNFA(value)
+    }
+}
+impl<'a> From<&'a contiguous::NFA> for AutomatonImpl<'a>  {
+    fn from(value: &'a contiguous::NFA) -> Self {
+        AutomatonImpl::ContiguousNFA(value)
+    }
+}
+impl<'a> From<&'a DFA> for AutomatonImpl<'a>  {
+    fn from(value: &'a DFA) -> Self {
+        AutomatonImpl::DFA(value)
+    }
+}
+
+unsafe impl<'a>  Automaton for AutomatonImpl<'a>  {
+    fn start_state(&self, anchored: Anchored) -> Result<StateID, MatchError> {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.start_state(anchored),
+            AutomatonImpl::ContiguousNFA(aut) => aut.start_state(anchored),
+            AutomatonImpl::DFA(aut) => aut.start_state(anchored),
+        }
+    }
+
+    fn next_state(
+        &self,
+        anchored: Anchored,
+        sid: StateID,
+        byte: u8,
+    ) -> StateID {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.next_state(anchored, sid, byte),
+            AutomatonImpl::ContiguousNFA(aut) => aut.next_state(anchored, sid, byte),
+            AutomatonImpl::DFA(aut) => aut.next_state(anchored, sid, byte),
+        }
+    }
+
+    fn is_special(&self, sid: StateID) -> bool {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.is_special(sid),
+            AutomatonImpl::ContiguousNFA(aut) => aut.is_special(sid),
+            AutomatonImpl::DFA(aut) => aut.is_special(sid),
+        }
+    }
+
+    fn is_dead(&self, sid: StateID) -> bool {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.is_dead(sid),
+            AutomatonImpl::ContiguousNFA(aut) => aut.is_dead(sid),
+            AutomatonImpl::DFA(aut) => aut.is_dead(sid),
+        }
+    }
+
+    fn is_match(&self, sid: StateID) -> bool {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.is_match(sid),
+            AutomatonImpl::ContiguousNFA(aut) => aut.is_match(sid),
+            AutomatonImpl::DFA(aut) => aut.is_match(sid),
+        }
+    }
+
+    fn is_start(&self, sid: StateID) -> bool {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.is_start(sid),
+            AutomatonImpl::ContiguousNFA(aut) => aut.is_start(sid),
+            AutomatonImpl::DFA(aut) => aut.is_start(sid),
+        }
+    }
+
+    fn match_kind(&self) -> MatchKind {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.match_kind(),
+            AutomatonImpl::ContiguousNFA(aut) => aut.match_kind(),
+            AutomatonImpl::DFA(aut) => aut.match_kind(),
+        }
+    }
+
+    fn match_len(&self, sid: StateID) -> usize {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.match_len(sid),
+            AutomatonImpl::ContiguousNFA(aut) => aut.match_len(sid),
+            AutomatonImpl::DFA(aut) => aut.match_len(sid),
+        }
+    }
+
+    fn match_pattern(&self, sid: StateID, index: usize) -> PatternID {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.match_pattern(sid, index),
+            AutomatonImpl::ContiguousNFA(aut) => aut.match_pattern(sid, index),
+            AutomatonImpl::DFA(aut) => aut.match_pattern(sid, index),
+        }
+    }
+
+    fn patterns_len(&self) -> usize {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.patterns_len(),
+            AutomatonImpl::ContiguousNFA(aut) => aut.patterns_len(),
+            AutomatonImpl::DFA(aut) => aut.patterns_len(),
+        }
+    }
+
+    fn pattern_len(&self, pid: PatternID) -> usize {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.pattern_len(pid),
+            AutomatonImpl::ContiguousNFA(aut) => aut.pattern_len(pid),
+            AutomatonImpl::DFA(aut) => aut.pattern_len(pid),
+        }
+    }
+
+    fn min_pattern_len(&self) -> usize {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.min_pattern_len(),
+            AutomatonImpl::ContiguousNFA(aut) => aut.min_pattern_len(),
+            AutomatonImpl::DFA(aut) => aut.min_pattern_len(),
+        }
+    }
+
+    fn max_pattern_len(&self) -> usize {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.max_pattern_len(),
+            AutomatonImpl::ContiguousNFA(aut) => aut.max_pattern_len(),
+            AutomatonImpl::DFA(aut) => aut.max_pattern_len(),
+        }
+    }
+
+    fn memory_usage(&self) -> usize {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.memory_usage(),
+            AutomatonImpl::ContiguousNFA(aut) => aut.memory_usage(),
+            AutomatonImpl::DFA(aut) => aut.memory_usage(),
+        }
+    }
+
+    fn prefilter(&self) -> Option<&Prefilter> {
+        match self {
+            AutomatonImpl::NoncontiguousNFA(aut) => aut.prefilter(),
+            AutomatonImpl::ContiguousNFA(aut) => aut.prefilter(),
+            AutomatonImpl::DFA(aut) => aut.prefilter(),
+        }
+    }
 }

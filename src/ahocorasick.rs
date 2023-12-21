@@ -1,12 +1,12 @@
 use core::{
     fmt::Debug,
-    panic::{RefUnwindSafe, UnwindSafe},
+    panic::{RefUnwindSafe, UnwindSafe}, any::Any,
 };
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    automaton::{self, Automaton, OverlappingState},
+    automaton::{self, Automaton, OverlappingState, AutomatonImpl},
     dfa,
     nfa::{contiguous, noncontiguous},
     util::{
@@ -1857,12 +1857,12 @@ impl AhoCorasick {
     /// finish() must be called after chunks are processed, as it might return remaining pending bytes,
     /// in case the last part of the last chunk is a matching suffix
     #[cfg(all(feature = "std"))]
-    pub fn replacer<'a>(
+    pub fn replacer(
         &self,
         replace_with: Vec<Vec<u8>>,
     ) -> Result<AhoCorasickReplacer, MatchError>
     {
-        AhoCorasickReplacer::new(Arc::clone(&self.aut), replace_with)
+        AhoCorasickReplacer::new(Arc::clone(&self.aut), self.kind, replace_with)
     }
 
     /// Obtain AhoCorasickAsyncReader wrapping an original AsyncRead source
@@ -1908,6 +1908,7 @@ impl AhoCorasick {
 
         AhoCorasickAsyncReader::new(
             Arc::clone(&self.aut),
+            self.kind,
             source,
             replace_with,
         )
@@ -1963,8 +1964,12 @@ impl AhoCorasick {
         enforce_anchored_consistency(self.start_kind, Anchored::No)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
-        AhoCorasickAsyncWriter::new(Arc::clone(&self.aut), sink, replace_with)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        AhoCorasickAsyncWriter::new(
+            Arc::clone(&self.aut),
+            self.kind,
+            sink,
+            replace_with
+        ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 
     /// Helper method to read everything from the given AsyncRead, perform the replacements
@@ -2819,11 +2824,32 @@ pub enum AhoCorasickKind {
 pub(crate) trait AcAutomaton:
     Automaton + Debug + Send + Sync + UnwindSafe + RefUnwindSafe + 'static
 {
+    fn as_any(&self) -> &dyn Any;
+    /// Coerces dynamic trait object into a concerete type,
+    /// which allows to take advantage of inlined automaton methods
+    fn coerce_concrete(&self, kind: AhoCorasickKind) -> AutomatonImpl;
 }
 
 impl<A> AcAutomaton for A where
     A: Automaton + Debug + Send + Sync + UnwindSafe + RefUnwindSafe + 'static
 {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn coerce_concrete(&self, kind: AhoCorasickKind) -> AutomatonImpl {
+        let aut_any = self.as_any();
+        match kind {
+            AhoCorasickKind::NoncontiguousNFA => {
+                aut_any.downcast_ref::<crate::nfa::noncontiguous::NFA>().unwrap().into()
+            },
+            AhoCorasickKind::ContiguousNFA => {
+                aut_any.downcast_ref::<crate::nfa::contiguous::NFA>().unwrap().into()
+            },
+            AhoCorasickKind::DFA => {
+                aut_any.downcast_ref::<crate::dfa::DFA>().unwrap().into()
+            },
+        }
+    }
 }
 
 impl crate::automaton::private::Sealed for Arc<dyn AcAutomaton> {}
