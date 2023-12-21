@@ -1,5 +1,5 @@
 use crate::{
-    ahocorasick::AcAutomaton, automaton::StateID, Anchored, MatchError,
+    ahocorasick::AcAutomaton, automaton::{StateID, Automaton}, Anchored, MatchError, AhoCorasickKind,
 };
 use alloc::{collections::VecDeque, sync::Arc, vec::Vec};
 use core::task::Poll;
@@ -12,6 +12,7 @@ pin_project! {
         #[pin]
         source: R,
         aut: Arc<dyn AcAutomaton>,
+        kind: AhoCorasickKind,
         sid: StateID,
         replace_with: &'a [B],
         buffer: Vec<u8>, // Used to buffer initially read bytes (before replacements)
@@ -27,6 +28,7 @@ where
 {
     pub(crate) fn new(
         aut: Arc<dyn AcAutomaton>,
+        kind: AhoCorasickKind,
         source: R,
         replace_with: &'a [B],
     ) -> Result<Self, MatchError> {
@@ -34,6 +36,7 @@ where
         Ok(AhoCorasickAsyncReader {
             source,
             aut,
+            kind,
             sid,
             replace_with,
             buffer: Vec::new(),
@@ -75,6 +78,7 @@ where
         buf: &mut [u8],
     ) -> std::task::Poll<std::io::Result<usize>> {
         let this = self.as_mut().project();
+        let aut = this.aut.as_ref().coerce_concrete(*this.kind);
         if this.buffer.len() < buf.len() {
             this.buffer.resize(buf.len(), b'\0');
         }
@@ -111,12 +115,12 @@ where
                             }
                         }
                         for byte in &this.buffer[..size] {
-                            *this.sid = this.aut.next_state(
+                            *this.sid = aut.next_state(
                                 Anchored::No,
                                 *this.sid,
                                 *byte,
                             );
-                            if this.aut.is_start(*this.sid) {
+                            if aut.is_start(*this.sid) {
                                 // No potential replacements
                                 while this.potential_buffer.len() > 0 {
                                     // At this point potential buffer is discareded (written)
@@ -137,11 +141,11 @@ where
                                 );
                             } else {
                                 this.potential_buffer.push_back(*byte);
-                                if this.aut.is_match(*this.sid) {
+                                if aut.is_match(*this.sid) {
                                     let pattern_id =
-                                        this.aut.match_pattern(*this.sid, 0);
+                                        aut.match_pattern(*this.sid, 0);
                                     let pattern_len =
-                                        this.aut.pattern_len(pattern_id);
+                                        aut.pattern_len(pattern_id);
                                     // Either we followed a potential word all the way down, or we jumped to a different branch following the suffix link
                                     // In the second case, we need to discard (write away) first part of the potential buffer, as it will be bigger than the max match,
                                     // keeping as new potential the last part containing the amount of bytes equal to the new state node depth (equal to the pattern_len)
